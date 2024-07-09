@@ -11,7 +11,7 @@
 using namespace std;
 
 #define PACKET_SIZE 1024
-SOCKET skt;
+SOCKET skt, client_sock;
 
 //유저 정보 집어 넣을 배열(나중에 빠르게 찾기 위해 unordered_map 사용해봄(1차)) (회원가입이나 로그인 할때 확인용으로만 사용)(db연결 전 까지만 사용)
 //id,password
@@ -24,20 +24,24 @@ struct new_users {
 };
 
 //현재 접속중인 유저 수
-unordered_map<string,new_users> current_user;
+unordered_map<string, new_users> current_user;
 
 //이건 나중에 운영자랑 유저랑 채팅 하기 위한 코드 
-void proc_recvs(SOCKET client_sock) {
+void proc_recvs() {
 	char buffer[PACKET_SIZE] = { 0 };
+	string temp;
 
 	while (!WSAGetLastError()) {
-		ZeroMemory(&buffer, PACKET_SIZE);
+		memset(&buffer, 0, sizeof(buffer));
 		recv(client_sock, buffer, PACKET_SIZE, 0);
-		cout << "받은 메세지: " << buffer << endl << endl;
+		temp = buffer;
+		if (temp == "10101") {
+			cout << endl;
+			cout << "유저가 채팅 연결을 종료하였습니다. 나가시려면 10101을 입력해 주세요" << endl;
+			break;
+		};
+		cout << "받은 메세지: " << buffer << endl;
 	}
-}
-
-void newuser() {
 
 }
 
@@ -79,28 +83,27 @@ void login(char* buffer, int client_sock) {
 		if (tempuser->second == password) {
 
 			//id pass 전부 맞으면 1 보내기 (나중에는 뮤택스를 써서 cnt를 증가 시키거나 구분 할 수 있는 숫자를 보내주기)
-			send(client_sock, "1", PACKET_SIZE, 0);
+			send(client_sock, "2", PACKET_SIZE, 0);
 			new_users temp_user_struct;
 			temp_user_struct.id = tempuser->first;
 			temp_user_struct.client_soc = client_sock;
 			current_user[tempuser->first] = temp_user_struct;
 
 			//서버에 접속한 사람 뜨게 하기
-			cout << "클라이언트 " << client_sock << " 연결완료" << endl << endl;
+			cout << "클라이언트 " << tempuser->first << " 연결완료" << endl << endl;
 
 			//나중에는 유저 추가 될때마다 미리 변수 선언해서 ++ 하고 --해가면서 굳이 size계산에 시간 날리지 말기
-			cout << "현재 접속인원 : " << current_user.size();
+			cout << "현재 접속인원 : " << current_user.size() << endl << endl;
 
 			//친구추가 해둔 유저있으면 방금 들어온 유저 있다고 알려주는 메시지 뿌리기 (db에 저장된 친구 가져와서 뿌리기)
 			//(클라이언트는 누가 들어왔는지 알 수 있게 친추 창 쓰레드 하나 계속 돌려놔야 겠다)
-
 		}
 		else {
 			//틀리면 0 보내기
-			send(client_sock, "0", PACKET_SIZE, 0);
+			send(client_sock, "1", PACKET_SIZE, 0);
 		}
-
 	}
+	else send(client_sock, "0", PACKET_SIZE, 0);
 }
 
 void sign_up(char* buffer) {
@@ -110,6 +113,7 @@ void sign_up(char* buffer) {
 	string password;
 	iss >> selectnum >> id >> password;
 	users[id] = password;
+	cout << id << " 님이 회원가입 하였습니다" << endl << endl;
 }
 
 int main() {
@@ -124,7 +128,8 @@ int main() {
 	cout << "=======서버시작=======" << endl;
 	cout << "======================" << endl;
 	cout << "======================" << endl;
-	cout << "======================" << endl << endl << endl << endl << endl;
+	cout << "======================" << endl << endl << endl;
+
 
 	SOCKADDR_IN addr = { 0 };
 	addr.sin_family = AF_INET;
@@ -134,22 +139,20 @@ int main() {
 	bind(skt, (SOCKADDR*)&addr, sizeof(addr));
 	listen(skt, SOMAXCONN);
 
-	SOCKET client_sock;
 	SOCKADDR_IN client = {};
 	int client_size = sizeof(client);
 	ZeroMemory(&client, client_size);
 
+	client_sock = accept(skt, (SOCKADDR*)&client, &client_size);
+	if (client_sock == -1) {
+		cout << "accept 오류" << endl;
+	}
+
 	while (1) {
 
-		client_sock = accept(skt, (SOCKADDR*)&client, &client_size);
-		if (client_sock == -1) {
-			cout << "accept 오류" << endl;
-			continue;
-		}
-
 		char buffer[PACKET_SIZE] = { 0 };
-		recv(client_sock,buffer,PACKET_SIZE,0);
-		
+		recv(client_sock, buffer, PACKET_SIZE, 0);
+
 		istringstream iss(buffer);
 		int selectnum;
 		iss >> selectnum;
@@ -157,6 +160,7 @@ int main() {
 		//회원가입(나중에 아이디 영문만 가능하게 하고, 패스워드도 특수문자 하나씩 넣어야 회원가입 되게 만들기)
 		//DB연동	
 		if (selectnum == 1) {
+			/*if (!WSAGetLastError()) continue;*/
 			sign_up(buffer);
 		}
 
@@ -168,6 +172,31 @@ int main() {
 		//채팅
 		else if (selectnum == 3) {
 
+			string in_id;
+			istringstream iss(buffer);
+			iss >> selectnum >> in_id;
+
+			cout << "======================" << endl;
+			cout << in_id << "님과 채팅시작" << endl;
+			cout << "======================" << endl;
+
+			char buffer[PACKET_SIZE] = { 0 };
+			thread proc2(proc_recvs);
+
+			while (!WSAGetLastError()) {
+				//띄어쓰기도 받기 위해서 cin말고 cin.getline 사용
+				cin.getline(buffer, PACKET_SIZE, '\n');
+				string finish = buffer;
+				if (finish == "10101") {
+					send(client_sock, "10101", strlen(buffer), 0);
+					cout << "유저와 채팅 연결을 종료 하였습니다." << endl;
+					break;
+				}
+				cout << "서버 전달 : " << buffer << endl << endl;
+				send(client_sock, buffer, strlen(buffer), 0);
+			}
+
+			proc2.join();
 		}
 
 		//로그아웃
@@ -175,12 +204,11 @@ int main() {
 			string id;
 			iss >> selectnum >> id;
 			current_user.erase(id);
+			cout << "로그아웃 완료" << endl;
 		}
 
 
 	}
-
-	//proc2.join();
 
 	closesocket(client_sock);
 	closesocket(skt);
