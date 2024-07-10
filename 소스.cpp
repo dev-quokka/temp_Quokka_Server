@@ -24,7 +24,7 @@ struct new_users {
 };
 
 //현재 접속중인 유저 수
-unordered_map<string, new_users> current_user;
+unordered_map<string,new_users> current_user;
 
 //이건 나중에 운영자랑 유저랑 채팅 하기 위한 코드 
 void proc_recvs() {
@@ -37,7 +37,7 @@ void proc_recvs() {
 		temp = buffer;
 		if (temp == "10101") {
 			cout << endl;
-			cout << "유저가 채팅 연결을 종료하였습니다. 나가시려면 10101을 입력해 주세요" << endl;
+			cout << "유저가 채팅 연결을 종료하였습니다. 나가시려면 10101을 입력해 주세요"<<endl;
 			break;
 		};
 		cout << "받은 메세지: " << buffer << endl;
@@ -128,7 +128,7 @@ int main() {
 	cout << "=======서버시작=======" << endl;
 	cout << "======================" << endl;
 	cout << "======================" << endl;
-	cout << "======================" << endl << endl << endl;
+	cout << "======================" << endl << endl << endl ;
 
 
 	SOCKADDR_IN addr = { 0 };
@@ -151,8 +151,8 @@ int main() {
 	while (1) {
 
 		char buffer[PACKET_SIZE] = { 0 };
-		recv(client_sock, buffer, PACKET_SIZE, 0);
-
+		recv(client_sock,buffer,PACKET_SIZE,0);
+		
 		istringstream iss(buffer);
 		int selectnum;
 		iss >> selectnum;
