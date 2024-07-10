@@ -16,6 +16,10 @@ SOCKET skt, client_sock;
 //유저 정보 집어 넣을 배열(나중에 빠르게 찾기 위해 unordered_map 사용해봄(1차)) (회원가입이나 로그인 할때 확인용으로만 사용)(db연결 전 까지만 사용)
 //id,password
 unordered_map<string, string> users;
+unordered_map<string, unordered_map<string, int>> friends;
+
+// 쿼카 친구들 아이디랑 접속 상태
+unordered_map<string, string> quokka_friends;
 
 struct new_users {
 	string id;
@@ -120,6 +124,11 @@ int main() {
 	WSADATA wsa;
 	WSAStartup(MAKEWORD(2, 2), &wsa);
 
+	//임시 쿼카 친구들
+	friends["quokka"]["yujin"] = 1;
+	friends["quokka"]["woobin"] = 1;
+	friends["quokka"]["wallaby"] = 0;
+
 	skt = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 
 	cout << "======================" << endl;
@@ -172,12 +181,13 @@ int main() {
 		//채팅
 		else if (selectnum == 3) {
 
-			string in_id;
+			string req_id;
+			string rcv_id;
 			istringstream iss(buffer);
-			iss >> selectnum >> in_id;
+			iss >> selectnum >> req_id >> rcv_id;
 
 			cout << "======================" << endl;
-			cout << in_id << "님과 채팅시작" << endl;
+			cout << req_id << "님과 "<<rcv_id <<"님 채팅시작" << endl;
 			cout << "======================" << endl;
 
 			char buffer[PACKET_SIZE] = { 0 };
@@ -198,6 +208,111 @@ int main() {
 
 			proc2.join();
 		}
+
+		//입력된 친구 있는지 확인
+		else if (selectnum == 97) {
+			string req_id;
+			string rcv_id;
+			istringstream iss(buffer);
+			iss >> selectnum >> req_id >> rcv_id;
+
+			auto rcv_tempuser = friends[req_id].find(rcv_id);
+
+				if (rcv_tempuser != friends[req_id].end()) {
+					send(client_sock, "1", PACKET_SIZE, 0);
+				}
+
+				else{
+					send(client_sock, "0", PACKET_SIZE, 0);
+				}
+
+			
+		}
+
+		//현재 접속중인 친구 몇명인지 알려 주세요
+		else if (selectnum == 98) {
+			string in_id;
+			istringstream iss(buffer);
+			iss >> selectnum >> in_id;
+			int temp_cnt = 0;
+			string temp_friend;
+			for (auto k : friends[in_id]) {
+				if (k.second == 1)
+					temp_cnt++;
+			}
+			temp_friend = to_string(temp_cnt);
+			//마지막 공백 제거 후 전송
+			char buffer[PACKET_SIZE];
+			strcpy_s(buffer, temp_friend.c_str());
+			send(client_sock, buffer, PACKET_SIZE, 0);
+		}
+
+		////총 친구 몇명인지 알려 주세요
+		//else if (selectnum == 99) {
+		//	string in_id;
+		//	istringstream iss(buffer);
+		//	iss >> selectnum >> in_id;
+		//	char buffer[PACKET_SIZE];
+		//	int friendsize = friends[in_id].size();
+		//	sprintf_s(buffer, sizeof(buffer), "%d", friendsize);
+		//	send(client_sock,buffer,PACKET_SIZE,0);
+		//}
+		
+		//현재 접속중인 친구 목록 주세요
+		else if (selectnum == 99) {
+			string in_id;
+			istringstream iss(buffer);
+			iss >> selectnum >> in_id;
+
+			//1. 하나씩 send 해주는것
+			/*for (auto k : quokka_friends) {
+				string temp_friend = k.second;
+				char buffer[PACKET_SIZE];
+				strcpy(buffer, temp_friend.c_str());
+				send(client_sock, buffer,PACKET_SIZE,0 );
+			}*/
+
+			//2. 공백 구분자로 묶어서 string으로 보내기
+			string temp_friend;
+			for (auto k : friends[in_id]) {
+				if (k.second == 1)
+				temp_friend += (k.first +" ");
+			}
+			//마지막 공백 제거 후 전송
+			temp_friend.pop_back();
+			char buffer[PACKET_SIZE];
+			strcpy_s(buffer, temp_friend.c_str());
+			send(client_sock, buffer, PACKET_SIZE, 0);
+		}
+
+
+		//전체 친구목록 주세요
+		else if (selectnum == 100) {
+
+			string in_id;
+			istringstream iss(buffer);
+			iss >> selectnum >> in_id;
+
+			//1. 하나씩 send 해주는것
+			/*for (auto k : quokka_friends) {
+				string temp_friend = k.second;
+				char buffer[PACKET_SIZE];
+				strcpy(buffer, temp_friend.c_str());
+				send(client_sock, buffer,PACKET_SIZE,0 );
+			}*/
+
+			//2. 공백 구분자로 묶어서 string으로 보내기
+			string temp_friend;
+			for (auto k : friends[in_id]) {
+				temp_friend += (k.first+to_string(k.second)+" ");
+			}
+			//마지막 공백 제거 후 전송
+			temp_friend.pop_back();
+			char buffer[PACKET_SIZE];
+			strcpy_s(buffer, temp_friend.c_str());
+			send(client_sock, buffer, PACKET_SIZE, 0);
+
+		 }
 
 		//로그아웃
 		else if (selectnum == 101) {
