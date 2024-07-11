@@ -13,9 +13,11 @@ using namespace std;
 #define PACKET_SIZE 1024
 SOCKET skt, client_sock;
 
-//유저 정보 집어 넣을 배열(나중에 빠르게 찾기 위해 unordered_map 사용해봄(1차)) (회원가입이나 로그인 할때 확인용으로만 사용)(db연결 전 까지만 사용)
+//유저 정보 집어 넣을 map(나중에 빠르게 찾기 위해 unordered_map 사용해봄(1차)) (회원가입이나 로그인 할때 확인용으로만 사용)(db연결 전 까지만 사용)
 //id,password
 unordered_map<string, string> users;
+
+//그 유저별 친구들 map
 unordered_map<string, unordered_map<string, int>> friends;
 
 // 쿼카 친구들 아이디랑 접속 상태
@@ -124,6 +126,10 @@ int main() {
 	WSADATA wsa;
 	WSAStartup(MAKEWORD(2, 2), &wsa);
 
+	users["woobin"] = "123";
+	users["yujin"] = "123";
+	users["wallaby"] = "123";
+
 	//임시 쿼카 친구들
 	friends["quokka"]["yujin"] = 1;
 	friends["quokka"]["woobin"] = 1;
@@ -166,16 +172,17 @@ int main() {
 		int selectnum;
 		iss >> selectnum;
 
-		//회원가입(나중에 아이디 영문만 가능하게 하고, 패스워드도 특수문자 하나씩 넣어야 회원가입 되게 만들기)
-		//DB연동	
+		//로그인	
 		if (selectnum == 1) {
+			login(buffer, client_sock);
+		}
+		
+		//회원가입(나중에 아이디 영문만 가능하게 하고, 패스워드도 특수문자 하나씩 넣어야 회원가입 되게 만들기)
+		//DB연동
+		else if (selectnum == 2) {
 			/*if (!WSAGetLastError()) continue;*/
 			sign_up(buffer);
-		}
-
-		//로그인
-		else if (selectnum == 2) {
-			login(buffer, client_sock);
+			
 		}
 
 		//채팅
@@ -209,6 +216,33 @@ int main() {
 			proc2.join();
 		}
 
+		//친구추가요청(요청과 동시에 그 친구 목록에 그 아이디 상태 2로해서 집어넣기)
+		//요청한 그 아이디가 로그인 하면 친추 요청 모아둔거 쏴주거나, 온라인일때 실시간으로 받을 수 있게 해야함
+		else if (selectnum == 95) {
+
+		}
+		
+		//전체 유저에서 친구 존재하는지 확인
+		else if (selectnum==96) {
+			string req_id;
+			string rcv_id;
+			istringstream iss(buffer);
+			iss >> selectnum >> req_id >> rcv_id;
+			
+			auto rcv_tempuser = users.find(rcv_id);
+
+			//요청한 아이디 친구 있음
+			if (rcv_tempuser != users.end()) {
+				send(client_sock, "1",PACKET_SIZE,0);
+
+			}
+			//요청한 아이디 친구 없음
+			else {
+				send(client_sock,"0",PACKET_SIZE,0);
+			}
+
+		}
+
 		//입력된 친구 있는지 확인
 		else if (selectnum == 97) {
 			string req_id;
@@ -226,7 +260,6 @@ int main() {
 					send(client_sock, "0", PACKET_SIZE, 0);
 				}
 
-			
 		}
 
 		//현재 접속중인 친구 몇명인지 알려 주세요
@@ -247,7 +280,7 @@ int main() {
 			send(client_sock, buffer, PACKET_SIZE, 0);
 		}
 
-		////총 친구 몇명인지 알려 주세요
+		//총 친구 몇명인지 알려 주세요
 		//else if (selectnum == 99) {
 		//	string in_id;
 		//	istringstream iss(buffer);
@@ -316,12 +349,13 @@ int main() {
 
 		//로그아웃
 		else if (selectnum == 101) {
-			string id;
-			iss >> selectnum >> id;
-			current_user.erase(id);
-			cout << "로그아웃 완료" << endl;
+			string req_id;
+			istringstream iss(buffer);
+			iss >> selectnum >> req_id;
+			cout << req_id << "님 로그아웃" << endl;
+			current_user.erase(req_id);
+			cout << "현재 접속인원 : " << current_user.size() << endl << endl;
 		}
-
 
 	}
 
