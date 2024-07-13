@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <sstream>
 #include <string>
+#include <map>
 
 #pragma comment(lib, "ws2_32.lib") //비주얼에서 소켓프로그래밍 하기 위한 것
 using namespace std;
@@ -13,15 +14,18 @@ using namespace std;
 #define PACKET_SIZE 1024
 SOCKET skt, client_sock;
 
-//유저 정보 집어 넣을 map(나중에 빠르게 찾기 위해 unordered_map 사용해봄(1차)) (회원가입이나 로그인 할때 확인용으로만 사용)(db연결 전 까지만 사용)
-//id,password
+// 유저 정보 집어 넣을 map(나중에 빠르게 찾기 위해 unordered_map 사용해봄(1차)) (회원가입이나 로그인 할때 확인용으로만 사용)(db연결 전 까지만 사용)
+// id,password, 나중에 로그인 상태도 여기에 추가
 unordered_map<string, string> users;
 
-//그 유저별 친구들 map
+// 그 유저별 친구들 map (int는 일단 상태로 했는데 나중에 다른것으로 수정하자. 친구 추가할때 저거 상태 설정이 애매하다.)
 unordered_map<string, unordered_map<string, int>> friends;
 
-// 쿼카 친구들 아이디랑 접속 상태
-unordered_map<string, string> quokka_friends;
+// 어떤 아이디(쿼카)가 받은 친구요청
+unordered_map<string,vector<string>> quokka_friend_rcv;
+
+// 어떤 아이디(쿼카)가 요청한 친구요청
+unordered_map<string, vector<string>> quokka_friend_req;
 
 struct new_users {
 	string id;
@@ -126,14 +130,35 @@ int main() {
 	WSADATA wsa;
 	WSAStartup(MAKEWORD(2, 2), &wsa);
 
+
+	//============== 더미 데이터 ================
+
+	quokka_friend_rcv["quokka"].emplace_back("meetquack");
+	quokka_friend_rcv["quokka"].emplace_back("raccoon");
+
 	users["woobin"] = "123";
 	users["yujin"] = "123";
 	users["wallaby"] = "123";
+	users["capybara"] = "123";
+
+	new_users woobin;
+	woobin.client_soc = 99999;
+	woobin.id = "woobin";
+
+	new_users yujin;
+	yujin.client_soc = 99998;
+	yujin.id = "yujin";
+
+	current_user["woobin"] = woobin;
+	current_user["yujin"] = yujin;
 
 	//임시 쿼카 친구들
 	friends["quokka"]["yujin"] = 1;
 	friends["quokka"]["woobin"] = 1;
 	friends["quokka"]["wallaby"] = 0;
+
+	//============== 더미 데이터 ================
+
 
 	skt = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -216,29 +241,90 @@ int main() {
 			proc2.join();
 		}
 
-		//친구추가요청(요청과 동시에 그 친구 목록에 그 아이디 상태 2로해서 집어넣기)
+		//친구추가
+		else if (selectnum == 94) {
+			string req_id;
+			string rcv_num_s;
+
+			// 친구 벡터에 인덱스로 접근 해야해서 넘어오는 숫자에서 1빼주기
+			int rcv_num_i = stoi(rcv_num_s)-1;
+			istringstream iss(buffer);
+			iss >> selectnum >> req_id >> rcv_num_s;
+
+			// 쿼카 친구 요청에 그 친구 추가 (상태는 나중에 수정하기)
+			friends[req_id][quokka_friend_rcv[req_id][rcv_num_i]] = 1;
+			// 그 친구 한테도 요청 보내기 (나중에 디비 연결 후 추가)
+			//friends[quokka_friend_rcv[req_id][rcv_num_i]][req_id] = 1;
+			
+			quokka_friend_rcv[req_id].erase(quokka_friend_rcv[req_id].begin() + rcv_num_i);
+			// 그 친구가 보낸 요청도 삭제 (나중에 디비 연결 후 추가)
+			// 
+		}
+
+		//친구 새로운 요청 있는지 확인 + 요청이 몇건인지
 		//요청한 그 아이디가 로그인 하면 친추 요청 모아둔거 쏴주거나, 온라인일때 실시간으로 받을 수 있게 해야함
-		else if (selectnum == 95) {
+		else if (selectnum==95) {
+			string req_id;
+			int friend_req_num;
+			istringstream iss(buffer);
+			iss >> selectnum >> friend_req_num >>req_id;
+
+			// 새로운 요청 있는지 확인(없으면 0 보냄) + 새로운 요청 몇건인지 보내주기
+			if (friend_req_num == 1) {
+				string temp_friend_req;
+				char buffer[PACKET_SIZE];
+				memset(buffer, 0, PACKET_SIZE);
+				temp_friend_req = to_string(quokka_friend_rcv[req_id].size());
+				strcpy_s(buffer, temp_friend_req.c_str());
+				send(client_sock, buffer, PACKET_SIZE, 0);
+			}
+
+			// 새로운 요청 누구누군지
+			else if (friend_req_num == 2) {
+
+				string temp_friend_req;
+
+				for (int i = 0; i < quokka_friend_rcv["quokka"].size(); i++) {
+					if (i == 0)
+						temp_friend_req += quokka_friend_rcv["quokka"][i];
+					else
+						temp_friend_req += ("," + quokka_friend_rcv["quokka"][i]);
+				}
+
+				char buffer[PACKET_SIZE];
+				memset(buffer, 0, PACKET_SIZE);
+				strcpy_s(buffer, temp_friend_req.c_str());
+				send(client_sock, buffer, PACKET_SIZE, 0);
+			}
 
 		}
-		
+
 		//전체 유저에서 친구 존재하는지 확인
 		else if (selectnum==96) {
 			string req_id;
 			string rcv_id;
+			int friend_req_num;
 			istringstream iss(buffer);
-			iss >> selectnum >> req_id >> rcv_id;
-			
+			iss >> selectnum >> friend_req_num >>req_id >> rcv_id;
 			auto rcv_tempuser = users.find(rcv_id);
 
-			//요청한 아이디 친구 있음
-			if (rcv_tempuser != users.end()) {
-				send(client_sock, "1",PACKET_SIZE,0);
+			if (friend_req_num == 1) {
 
+				//요청한 아이디 친구 있음
+				if (rcv_tempuser != users.end()) {
+					send(client_sock, "1", PACKET_SIZE, 0);
+
+				}
+				//요청한 아이디 친구 없음
+				else {
+					send(client_sock, "0", PACKET_SIZE, 0);
+				}
 			}
-			//요청한 아이디 친구 없음
-			else {
-				send(client_sock,"0",PACKET_SIZE,0);
+			else if (friend_req_num == 2) {
+				quokka_friend_req[req_id].emplace_back(rcv_id);
+
+				// 그 친구 받은 요청에 뜰 수 있게 (나중에 디비 연결 후 추가)
+				//quokka_friend_rcv[rcv_id].emplace_back(req_id);
 			}
 
 		}
