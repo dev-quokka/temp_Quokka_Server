@@ -241,15 +241,15 @@ int main() {
 			proc2.join();
 		}
 
-		//친구추가
+		//요청 받은 친구추가
 		else if (selectnum == 94) {
 			string req_id;
-			string rcv_num_s;
+			int rcv_num_i;
 
 			// 친구 벡터에 인덱스로 접근 해야해서 넘어오는 숫자에서 1빼주기
-			int rcv_num_i = stoi(rcv_num_s)-1;
 			istringstream iss(buffer);
-			iss >> selectnum >> req_id >> rcv_num_s;
+			iss >> selectnum >> req_id >> rcv_num_i;
+			rcv_num_i--;
 
 			// 쿼카 친구 요청에 그 친구 추가 (상태는 나중에 수정하기)
 			friends[req_id][quokka_friend_rcv[req_id][rcv_num_i]] = 1;
@@ -299,15 +299,21 @@ int main() {
 
 		}
 
-		//전체 유저에서 친구 존재하는지 확인
+		//친구 추가하기 위해서 전체 유저에서 그 유저 존재하는지 확인
 		else if (selectnum==96) {
 			string req_id;
 			string rcv_id;
 			int friend_req_num;
 			istringstream iss(buffer);
 			iss >> selectnum >> friend_req_num >>req_id >> rcv_id;
+
+			//전체 유저 찾는 
 			auto rcv_tempuser = users.find(rcv_id);
 
+			//친구목록에 유저 찾는
+			auto friends_tempuser = friends[req_id].find(rcv_id);
+
+			// 전체 유저에서 그 유저 찾기 (친구 추가)
 			if (friend_req_num == 1) {
 
 				//요청한 아이디 친구 있음
@@ -319,12 +325,40 @@ int main() {
 				else {
 					send(client_sock, "0", PACKET_SIZE, 0);
 				}
+
 			}
+
+			// 친구 목록에서 그 유저 찾기 (친구 삭제)
 			else if (friend_req_num == 2) {
+
+				//요청한 아이디 친구 있음
+				if (friends_tempuser != friends[req_id].end()) {
+					send(client_sock, "1", PACKET_SIZE, 0);
+
+				}
+				//요청한 아이디 친구 없음
+				else {
+					send(client_sock, "0", PACKET_SIZE, 0);
+				}
+
+			}
+
+			// 친구신청 (요청자 친구 신청목록(req)에 추가 + 상대 받은 목록(rcv)에도 추가)
+			else if (friend_req_num == 3) {
 				quokka_friend_req[req_id].emplace_back(rcv_id);
 
 				// 그 친구 받은 요청에 뜰 수 있게 (나중에 디비 연결 후 추가)
 				//quokka_friend_rcv[rcv_id].emplace_back(req_id);
+			}
+
+			// 친구삭제 (요청자 친구 목록에서 삭제 + 상대 목록에서 삭제)
+			else if (friend_req_num == 4) {
+
+				// 내 목록에서 삭제
+				friends[req_id].erase(rcv_id);
+
+				// 나중에 그 친구 목록에서도 삭제
+				friends[rcv_id].erase(req_id);
 			}
 
 		}
