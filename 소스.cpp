@@ -36,8 +36,17 @@ struct new_users {
 //현재 접속중인 유저 수
 unordered_map<string,new_users> current_user;
 
-//이건 나중에 운영자랑 유저랑 채팅 하기 위한 코드 
-void proc_recvs() {
+// 채팅방 당 구분할 수 있는 체크배열
+unordered_map<int, int> check_chat;
+
+//현재 유저가 참여중인 방
+unordered_map<string, unordered_map<int, string>> chatroom;
+
+//쿼카가 참여중인 방
+unordered_map<int, string> quokka_in_chatroom;
+
+void proc_recvs(int k) {
+
 	char buffer[PACKET_SIZE] = { 0 };
 	string temp;
 
@@ -46,8 +55,9 @@ void proc_recvs() {
 		recv(client_sock, buffer, PACKET_SIZE, 0);
 		temp = buffer;
 		if (temp == "10101") {
+			check_chat[k] = 0;
 			cout << endl;
-			cout << "유저가 채팅 연결을 종료하였습니다. 나가시려면 10101을 입력해 주세요"<<endl;
+			cout << "채팅 연결을 종료하였습니다."<<endl;
 			break;
 		};
 		cout << "받은 메세지: " << buffer << endl;
@@ -218,24 +228,39 @@ int main() {
 			istringstream iss(buffer);
 			iss >> selectnum >> req_id >> rcv_id;
 
+			// 처음 들어온 두 소켓을 합친 고유번호를 만들어서 그걸로 판단
+			string temp_chat_terminate_check_s = to_string(current_user[req_id].client_soc) + to_string(current_user[rcv_id].client_soc);
+			int temp_chat_terminate_check = stoi(temp_chat_terminate_check_s);
+
+			check_chat[temp_chat_terminate_check] = 1;
+
 			cout << "======================" << endl;
 			cout << req_id << "님과 "<<rcv_id <<"님 채팅시작" << endl;
 			cout << "======================" << endl;
 
 			char buffer[PACKET_SIZE] = { 0 };
-			thread proc2(proc_recvs);
+			thread proc2(proc_recvs, temp_chat_terminate_check);
 
 			while (!WSAGetLastError()) {
-				//띄어쓰기도 받기 위해서 cin말고 cin.getline 사용
-				cin.getline(buffer, PACKET_SIZE, '\n');
-				string finish = buffer;
-				if (finish == "10101") {
-					send(client_sock, "10101", strlen(buffer), 0);
-					cout << "유저와 채팅 연결을 종료 하였습니다." << endl;
+
+				// 유저가 불편함 안느끼는 시간안에 while문 돌기
+				Sleep(1000);
+				if (!check_chat[temp_chat_terminate_check]) {
+					send(client_sock, "10101", PACKET_SIZE, 0);
 					break;
 				}
-				cout << "서버 전달 : " << buffer << endl << endl;
-				send(client_sock, buffer, strlen(buffer), 0);
+
+				////띄어쓰기도 받기 위해서 cin말고 cin.getline 사용
+				//cin.getline(buffer, PACKET_SIZE, '\n');
+				//string finish = buffer;
+				//if (finish == "10101") {
+				//	send(client_sock, "10101", strlen(buffer), 0);
+				//	cout << "유저와 채팅 연결을 종료 하였습니다." << endl;
+				//	break;
+				//}
+				//cout << "서버 전달 : " << buffer << endl << endl;
+				//send(client_sock, buffer, strlen(buffer), 0);
+
 			}
 
 			proc2.join();
