@@ -39,11 +39,9 @@ unordered_map<string,new_users> current_user;
 // 채팅방 당 구분할 수 있는 체크배열
 unordered_map<int, int> check_chat;
 
-//현재 유저가 참여중인 방
-unordered_map<string, unordered_map<int, string>> chatroom;
-
-//쿼카가 참여중인 방
-unordered_map<int, string> quokka_in_chatroom;
+// 두명 이상이 됬을때 현재 유저가 참여중인 방  (그 아이디 소켓으로 만든 파티방)
+// 처음 초대한 유저 방은 그 유저 소켓 번호로 그대로 유지하되, 파티장 권한만 넘겨줄 수 있는 bool값 설정
+unordered_map<int, vector<pair<string,bool>>> partymember;
 
 void proc_recvs(int k) {
 
@@ -56,11 +54,11 @@ void proc_recvs(int k) {
 		temp = buffer;
 		if (temp == "10101") {
 			check_chat[k] = 0;
-			cout << endl;
-			cout << "채팅 연결을 종료하였습니다."<<endl;
+			std::cout << endl;
+			std::cout << "채팅 연결을 종료하였습니다."<<endl;
 			break;
 		};
-		cout << "받은 메세지: " << buffer << endl;
+		std::cout << "받은 메세지: " << buffer << endl;
 	}
 
 }
@@ -110,13 +108,12 @@ void login(char* buffer, int client_sock) {
 			current_user[tempuser->first] = temp_user_struct;
 
 			//서버에 접속한 사람 뜨게 하기
-			cout << "클라이언트 " << tempuser->first << " 연결완료" << endl << endl;
+			std::cout << "클라이언트 " << tempuser->first << " 연결완료" << endl << endl;
 
 			//나중에는 유저 추가 될때마다 미리 변수 선언해서 ++ 하고 --해가면서 굳이 size계산에 시간 날리지 말기
-			cout << "현재 접속인원 : " << current_user.size() << endl << endl;
+			std::cout << "현재 접속인원 : " << current_user.size() << endl << endl;
 
-			//친구추가 해둔 유저있으면 방금 들어온 유저 있다고 알려주는 메시지 뿌리기 (db에 저장된 친구 가져와서 뿌리기)
-			//(클라이언트는 누가 들어왔는지 알 수 있게 친추 창 쓰레드 하나 계속 돌려놔야 겠다)
+			partymember[client_sock].emplace_back(pair<string, bool>(tempuser->first,true)) ;
 		}
 		else {
 			//틀리면 0 보내기
@@ -133,7 +130,7 @@ void sign_up(char* buffer) {
 	string password;
 	iss >> selectnum >> id >> password;
 	users[id] = password;
-	cout << id << " 님이 회원가입 하였습니다" << endl << endl;
+	std::cout << id << " 님이 회원가입 하였습니다" << endl << endl;
 }
 
 int main() {
@@ -172,13 +169,13 @@ int main() {
 
 	skt = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 
-	cout << "======================" << endl;
-	cout << "======================" << endl;
-	cout << "======================" << endl;
-	cout << "=======서버시작=======" << endl;
-	cout << "======================" << endl;
-	cout << "======================" << endl;
-	cout << "======================" << endl << endl << endl ;
+	std::cout << "======================" << endl;
+	std::cout << "======================" << endl;
+	std::cout << "======================" << endl;
+	std::cout << "=======서버시작=======" << endl;
+	std::cout << "======================" << endl;
+	std::cout << "======================" << endl;
+	std::cout << "======================" << endl << endl << endl ;
 
 
 	SOCKADDR_IN addr = { 0 };
@@ -195,7 +192,7 @@ int main() {
 
 	client_sock = accept(skt, (SOCKADDR*)&client, &client_size);
 	if (client_sock == -1) {
-		cout << "accept 오류" << endl;
+		std::cout << "accept 오류" << endl;
 	}
 
 	while (1) {
@@ -225,8 +222,16 @@ int main() {
 
 			string req_id;
 			string rcv_id;
+			int selectnum_party_chat_i;
 			istringstream iss(buffer);
-			iss >> selectnum >> req_id >> rcv_id;
+			iss >> selectnum >> selectnum_party_chat_i >>req_id >> rcv_id;
+
+			// 현재 파티 채팅에 입장합니다
+			if (selectnum_party_chat_i == 1) {
+
+
+				send(client_sock, "1", PACKET_SIZE, 0);
+			}
 
 			// 처음 들어온 두 소켓을 합친 고유번호를 만들어서 그걸로 판단
 			string temp_chat_terminate_check_s = to_string(current_user[req_id].client_soc) + to_string(current_user[rcv_id].client_soc);
@@ -234,9 +239,9 @@ int main() {
 
 			check_chat[temp_chat_terminate_check] = 1;
 
-			cout << "======================" << endl;
-			cout << req_id << "님과 "<<rcv_id <<"님 채팅시작" << endl;
-			cout << "======================" << endl;
+			std::cout << "======================" << endl;
+			std::cout << req_id << "님과 "<<rcv_id <<"님 채팅시작" << endl;
+			std::cout << "======================" << endl;
 
 			char buffer[PACKET_SIZE] = { 0 };
 			thread proc2(proc_recvs, temp_chat_terminate_check);
@@ -265,6 +270,33 @@ int main() {
 
 			proc2.join();
 		}
+
+		//파티확인
+		else if (selectnum == 4) {
+			int partycheck_num;
+			string req_id;
+
+			istringstream iss(buffer);
+			iss >> selectnum >> partycheck_num >> req_id;
+
+			int partymember_i = current_user[req_id].client_soc;
+
+			// 현재 파티원 몇명인지
+			if (partycheck_num == 1) {
+				std::cout << "파티원 수 현재 : " << partymember[partymember_i].size()<<endl;
+				string temp_partymember_num_s = to_string(partymember[partymember_i].size());
+				memset(buffer,0,PACKET_SIZE);
+				strcpy_s(buffer, temp_partymember_num_s.c_str());
+				send(client_sock, buffer, PACKET_SIZE, 0);
+			}
+
+			//현재 파티원 누구누군지
+			for (auto& k : partymember[partymember_i]) {
+				
+			}
+
+		}
+
 
 		//요청 받은 친구추가
 		else if (selectnum == 94) {
@@ -497,9 +529,9 @@ int main() {
 			string req_id;
 			istringstream iss(buffer);
 			iss >> selectnum >> req_id;
-			cout << req_id << "님 로그아웃" << endl;
+			std::cout << req_id << "님 로그아웃" << endl;
 			current_user.erase(req_id);
-			cout << "현재 접속인원 : " << current_user.size() << endl << endl;
+			std::cout << "현재 접속인원 : " << current_user.size() << endl << endl;
 		}
 
 	}
@@ -507,5 +539,5 @@ int main() {
 	closesocket(client_sock);
 	closesocket(skt);
 	WSACleanup();
-	cout << "연결이 종료되었습니다.";
+	std::cout << "연결이 종료되었습니다.";
 }
