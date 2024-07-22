@@ -7,9 +7,17 @@
 #include <sstream>
 #include <string>
 #include <map>
+#include <mysql.h>
+#pragma comment (lib, "libmysql.lib") // mysql 연동
 
 #pragma comment(lib, "ws2_32.lib") //비주얼에서 소켓프로그래밍 하기 위한 것
 using namespace std;
+
+MYSQL Conn;
+MYSQL* ConnPtr = NULL;
+MYSQL_RES* Result;
+MYSQL_ROW Row;
+int MysqlResult;
 
 #define PACKET_SIZE 1024
 SOCKET skt, client_sock;
@@ -40,8 +48,14 @@ unordered_map<string,new_users> current_user;
 unordered_map<int, int> check_chat;
 
 // 두명 이상이 됬을때 현재 유저가 참여중인 방  (그 아이디 소켓으로 만든 파티방)
-// 처음 초대한 유저 방은 그 유저 소켓 번호로 그대로 유지하되, 파티장 권한만 넘겨줄 수 있는 bool값 설정
+// 처음 초대한 유저 방은 그 유저 소켓 번호로 그대로 유지하되, 파티장 권한만 넘겨줄 수 있는 bool값(1) 설정
 unordered_map<int, vector<pair<string,bool>>> partymember;
+
+// 쿼카가 받은 파티 초대요청 (어떤 유저, 초대보낸 파티의 파티장 소켓번호 목록)
+unordered_map<int, vector<int>> party_join_req;
+
+vector<int> party_king;
+vector<vector<pair<string,bool>>> party_member;
 
 void proc_recvs(int k) {
 
@@ -55,7 +69,7 @@ void proc_recvs(int k) {
 		if (temp == "10101") {
 			check_chat[k] = 0;
 			std::cout << endl;
-			std::cout << "채팅 연결을 종료하였습니다."<<endl;
+			std::cout << "채팅 연결을 종료하였습니다." << endl;
 			break;
 		};
 		std::cout << "받은 메세지: " << buffer << endl;
@@ -130,13 +144,24 @@ void sign_up(char* buffer) {
 	string password;
 	iss >> selectnum >> id >> password;
 	users[id] = password;
-	std::cout << id << " 님이 회원가입 하였습니다" << endl << endl;
+	string k = "INSERT INTO user VALUES(NULL,'" +id+ "','" +password+ "')";
+	const char* Query = &*k.begin();
+	MysqlResult = mysql_query(ConnPtr, Query);
+	if (MysqlResult != 0) std::cout << "예외처리"<< endl;
+	else {
+		std::cout << id << " 님이 회원가입 하였습니다" << endl << endl;
+		mysql_free_result(Result);
+	}
 }
 
 int main() {
 	WSADATA wsa;
 	WSAStartup(MAKEWORD(2, 2), &wsa);
 
+	mysql_init(&Conn);
+	ConnPtr = mysql_real_connect(&Conn, "127.0.0.1", "root", "1234", "quokka_server", 3306, (char*)NULL, 0);
+	/*if (ConnPtr == NULL) {}*/
+	//std::cout << "ClientInfo : " << mysql_get_client_info() << std::endl; // mysql 버전 뜨게 하는거
 
 	//============== 더미 데이터 ================
 
@@ -191,6 +216,7 @@ int main() {
 	ZeroMemory(&client, client_size);
 
 	client_sock = accept(skt, (SOCKADDR*)&client, &client_size);
+	
 	if (client_sock == -1) {
 		std::cout << "accept 오류" << endl;
 	}
@@ -226,50 +252,58 @@ int main() {
 			istringstream iss(buffer);
 			iss >> selectnum >> selectnum_party_chat_i >>req_id >> rcv_id;
 
+			
 			// 현재 파티 채팅에 입장합니다
 			if (selectnum_party_chat_i == 1) {
 
-
 				send(client_sock, "1", PACKET_SIZE, 0);
-			}
 
-			// 처음 들어온 두 소켓을 합친 고유번호를 만들어서 그걸로 판단
-			string temp_chat_terminate_check_s = to_string(current_user[req_id].client_soc) + to_string(current_user[rcv_id].client_soc);
-			int temp_chat_terminate_check = stoi(temp_chat_terminate_check_s);
+				// 처음 들어온 두 소켓을 합친 고유번호를 만들어서 그걸로 판단
+				string temp_chat_terminate_check_s = to_string(current_user[req_id].client_soc) + to_string(current_user[rcv_id].client_soc);
+				int temp_chat_terminate_check = stoi(temp_chat_terminate_check_s);
 
-			check_chat[temp_chat_terminate_check] = 1;
+				check_chat[temp_chat_terminate_check] = 1;
 
-			std::cout << "======================" << endl;
-			std::cout << req_id << "님과 "<<rcv_id <<"님 채팅시작" << endl;
-			std::cout << "======================" << endl;
+				char buffer[PACKET_SIZE] = { 0 };
 
-			char buffer[PACKET_SIZE] = { 0 };
-			thread proc2(proc_recvs, temp_chat_terminate_check);
+				while (!WSAGetLastError()) {
 
-			while (!WSAGetLastError()) {
+					// 유저가 불편함 안느끼는 시간안에 while문 돌기
+					Sleep(1000);
+					if (!check_chat[temp_chat_terminate_check]) {
+						send(client_sock, "10101", PACKET_SIZE, 0);
+						break;
+					}
+					Sleep(1000);
+					send(client_sock, "전체채팅전송", PACKET_SIZE, 0);
 
-				// 유저가 불편함 안느끼는 시간안에 while문 돌기
-				Sleep(1000);
-				if (!check_chat[temp_chat_terminate_check]) {
-					send(client_sock, "10101", PACKET_SIZE, 0);
-					break;
+					//	////띄어쓰기도 받기 위해서 cin말고 cin.getline 사용
+					//	//cin.getline(buffer, PACKET_SIZE, '\n');
+					//	//string finish = buffer;
+					//	//if (finish == "10101") {
+					//	//	send(client_sock, "10101", strlen(buffer), 0);
+					//	//	cout << "유저와 채팅 연결을 종료 하였습니다." << endl;
+					//	//	break;
+					//	//}
+					//	//cout << "서버 전달 : " << buffer << endl << endl;
+					//	//send(client_sock, buffer, strlen(buffer), 0);
+
+					//}
+
+					//proc2.join();
+
 				}
-
-				////띄어쓰기도 받기 위해서 cin말고 cin.getline 사용
-				//cin.getline(buffer, PACKET_SIZE, '\n');
-				//string finish = buffer;
-				//if (finish == "10101") {
-				//	send(client_sock, "10101", strlen(buffer), 0);
-				//	cout << "유저와 채팅 연결을 종료 하였습니다." << endl;
-				//	break;
-				//}
-				//cout << "서버 전달 : " << buffer << endl << endl;
-				//send(client_sock, buffer, strlen(buffer), 0);
-
 			}
 
-			proc2.join();
-		}
+			//귓속말 진행
+			else if (selectnum_party_chat_i == 2) {
+				char buffer[PACKET_SIZE] = { 0 };
+				recv(client_sock,buffer,PACKET_SIZE,0);
+				string temp_whisper = buffer;		
+				send(current_user[rcv_id].client_soc,"귓속말 받음",PACKET_SIZE,0);
+			}
+
+		} //채팅 마지막 else if문
 
 		//파티확인
 		else if (selectnum == 4) {
@@ -283,7 +317,6 @@ int main() {
 
 			// 현재 파티원 몇명인지
 			if (partycheck_num == 1) {
-				std::cout << "파티원 수 현재 : " << partymember[partymember_i].size()<<endl;
 				string temp_partymember_num_s = to_string(partymember[partymember_i].size());
 				memset(buffer,0,PACKET_SIZE);
 				strcpy_s(buffer, temp_partymember_num_s.c_str());
@@ -291,12 +324,26 @@ int main() {
 			}
 
 			//현재 파티원 누구누군지
-			for (auto& k : partymember[partymember_i]) {
+			/*for (auto& k : partymember[partymember_i]) {
 				
+			}*/
+
+			// 파티 초대 요청 있는지
+			else if (partycheck_num == 2) {
+
+	
+			}
+			// partycheck_num == 2
+
 			}
 
-		}
+		//파티 초대하기 (요청 보내기)
+		else if (selectnum == 84) {
+			// 현재 파티 번호 (소켓번호)
+			int party_num;
+			string req_id;
 
+		}
 
 		//요청 받은 친구추가
 		else if (selectnum == 94) {
@@ -310,6 +357,7 @@ int main() {
 
 			// 쿼카 친구 요청에 그 친구 추가 (상태는 나중에 수정하기)
 			friends[req_id][quokka_friend_rcv[req_id][rcv_num_i]] = 1;
+
 			// 그 친구 한테도 요청 보내기 (나중에 디비 연결 후 추가)
 			//friends[quokka_friend_rcv[req_id][rcv_num_i]][req_id] = 1;
 			
@@ -499,9 +547,9 @@ int main() {
 		//전체 친구목록 주세요
 		else if (selectnum == 100) {
 
-			string in_id;
+			string req_id;
 			istringstream iss(buffer);
-			iss >> selectnum >> in_id;
+			iss >> selectnum >> req_id;
 
 			//1. 하나씩 send 해주는것
 			/*for (auto k : quokka_friends) {
@@ -513,7 +561,7 @@ int main() {
 
 			//2. 공백 구분자로 묶어서 string으로 보내기
 			string temp_friend;
-			for (auto k : friends[in_id]) {
+			for (auto k : friends[req_id]) {
 				temp_friend += (k.first+to_string(k.second)+" ");
 			}
 			//마지막 공백 제거 후 전송
@@ -538,6 +586,7 @@ int main() {
 
 	closesocket(client_sock);
 	closesocket(skt);
+	mysql_close(ConnPtr);
 	WSACleanup();
 	std::cout << "연결이 종료되었습니다.";
 }
